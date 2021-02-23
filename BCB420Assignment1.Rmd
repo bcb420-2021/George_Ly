@@ -1,0 +1,100 @@
+---
+title: "BCB420 Assignemnt 1"
+author: "George Ly"
+output:
+  html_document:
+    df_print: paged
+---
+
+I have chosen to work on a data-set exploring the differences in gene expression
+of patients with asthma in response to the SARS-CoV-2 virus. 
+
+I have chosen this data-set to work with as asthma is a problem myself and others 
+in my family have struggled with in the past. With asthma being a respiratory 
+disease, I am curious to know what possible effects it could have in conjunction 
+with another respiratory illness such as COVID-19.
+
+```{r, message=FALSE}
+if (!file.exists("GSE158752_IMSA_BEC-RAW_Counts.txt")) {
+  GEOquery::getGEOSuppFiles("GSE158752",makeDirectory = FALSE)
+  gunzip("GSE158752_IMSA_BEC-RAW_Counts.txt.gz")
+}
+```
+
+```{r}
+rawCounts = read.table("GSE158752_IMSA_BEC-RAW_Counts.txt",header=TRUE, 
+                       row.names = 1, check.names = FALSE)
+nrow(rawCounts)
+rownames(rawCounts)[1:10]
+summarizedGeneCounts <- sort(table(rownames(rawCounts)),decreasing = TRUE)
+summarizedGeneCounts[1:10]
+```
+
+There are 26234 genes represented within the expression data-set. 
+The gene names (which were set to the row names) are already in HUGO format.
+Thus there will be no mapping done here. Every gene represented in the data-set
+is only represented once.
+
+```{r}
+ncol(rawCounts)
+colnames(rawCounts)[1:10]
+```
+There are 67 samples within this experiment. 
+
+The samples are split into three groups, the control group "Healthy" with no 
+asthma, and two experimental groups with "Mild" Asthma and "Severe" Asthma. These 
+are represented respectively by "H", "M", & "S".
+
+```{r}
+sum(unlist(lapply(colnames(rawCounts),grep,pattern="_H")))
+sum(unlist(lapply(colnames(rawCounts),grep,pattern="_M")))
+sum(unlist(lapply(colnames(rawCounts),grep,pattern="_S")))
+samples <- data.frame(lapply(colnames(rawCounts),
+                      FUN=function(x){unlist(strsplit(x, split = "\\_"))[c(1,3)]}))
+colnames(samples) <- colnames(rawCounts)
+rownames(samples) <- c("Patient","Asthma_severity")
+samples <- data.frame(t(samples))
+```
+There are 17 healthy samples, and 25 samples with mild and severe asthma.
+
+```{r}
+cpms = edgeR::cpm(rawCounts)
+keep = rowSums(cpms >1) >=67
+countsFiltered = rawCounts[keep,]
+nrow(countsFiltered)
+```
+After calculating for counts-per-million (CPM) using the edgeR package, I filtered
+out genes with less than 1 CPM per sample. This leaves 12865 genes left in the data-set after 
+13369 genes were filtered out.
+
+```{r}
+filteredDataMatrix <- as.matrix(countsFiltered)
+d = edgeR::DGEList(counts=filteredDataMatrix, group=samples$Asthma_severity)
+d = edgeR::calcNormFactors(d)
+TMMCounts = edgeR::cpm(d)
+```
+
+I chose to use the TMM normalization method in favour of distribution based methods
+as there are less control samples when compared to the two experimental sample sets.
+
+```{r}
+originalData <- log2(edgeR::cpm(countsFiltered))
+boxplot(originalData, xlab = "Samples", ylab = "log2 (CPM)", las=2, xaxt='n', main = "Before Normalization")
+abline(h = median(apply(originalData, 2, median)), col = "red")
+
+normData <- log2(TMMCounts)
+boxplot(normData, xlab = "Samples", ylab = "log2 (CPM)", las=2, xaxt='n', main = "After Normalization")
+abline(h = median(apply(normData, 2, median)), col = "red")
+```
+
+
+As expected the normalization does not change the results of the box-plot very much.
+```{r}
+limma::plotMDS(d, labels=rownames(samples),
+        col = c("darkgreen","blue","red")[factor(samples$Asthma_severity)], main = "MDS Plot")
+```
+
+
+The MDS shows samples with healthy and moderate cases of Asthma being clustered 
+close together. Severe cases of asthma are more likely to be farther away from
+the main cluster.
